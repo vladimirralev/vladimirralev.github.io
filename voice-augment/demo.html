@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Augment - Real-time Voice Analysis</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'sf': ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    },
+                    colors: {
+                        'apple-gray': {
+                            50: '#f9fafb',
+                            100: '#f3f4f6',
+                            200: '#e5e7eb',
+                            300: '#d1d5db',
+                            400: '#9ca3af',
+                            500: '#6b7280',
+                            600: '#4b5563',
+                            700: '#374151',
+                            800: '#1f2937',
+                            900: '#111827',
+                        },
+                        'apple-blue': '#007AFF',
+                        'apple-green': '#34C759',
+                        'apple-orange': '#FF9500',
+                        'apple-red': '#FF3B30',
+                        'apple-purple': '#AF52DE',
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%);
+            color: white;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+        }
+        .button-primary {
+            background: #007AFF;
+            color: white;
+            font-weight: 500;
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease-out;
+        }
+        .button-primary:hover {
+            background: rgba(0, 122, 255, 0.8);
+            transform: translateY(-1px);
+        }
+        .mic-button {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+        .mic-button:hover {
+            transform: scale(1.05);
+        }
+        .mic-button:active {
+            transform: scale(0.95);
+        }
+        .recording {
+            background: #FF3B30;
+            box-shadow: 0 8px 32px rgba(255, 59, 48, 0.25);
+        }
+        .not-recording {
+            background: #007AFF;
+            box-shadow: 0 8px 32px rgba(0, 122, 255, 0.25);
+        }
+        .pulse-ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: #FF3B30;
+            animation: pulse 2s infinite;
+            opacity: 0.2;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.2; }
+            50% { opacity: 0.1; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+        canvas {
+            background: #1f2937;
+            border-radius: 8px;
+            width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // Audio Analysis Hook
+        function useAudioAnalysis() {
+            const [audioState, setAudioState] = useState({
+                isRecording: false,
+                isAnalyzing: false,
+                volume: 0,
+                error: null,
+            });
+
+            const [analysisResults, setAnalysisResults] = useState({
+                pitch: null,
+                formants: null,
+                vowel: null,
+                spectrogram: [],
+                audioLevel: 0,
+            });
+
+            const [pitchHistory, setPitchHistory] = useState([]);
+
+            const audioContextRef = useRef(null);
+            const analyserRef = useRef(null);
+            const sourceRef = useRef(null);
+            const streamRef = useRef(null);
+            const animationFrameRef = useRef(null);
+
+            const startRecording = useCallback(async () => {
+                try {
+                    console.log('Starting recording...');
+                    setAudioState(prev => ({ ...prev, error: null }));
+
+                    // Check if getUserMedia is available
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('getUserMedia is not supported in this browser');
+                    }
+
+                    console.log('Requesting microphone access...');
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false,
+                        },
+                    });
+
+                    console.log('Microphone access granted, creating audio context...');
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                    // Resume audio context if it's suspended
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+
+                    const analyser = audioContext.createAnalyser();
+                    const source = audioContext.createMediaStreamSource(stream);
+
+                    analyser.fftSize = 8192; // Higher resolution for better formant detection
+                    analyser.smoothingTimeConstant = 0.1; // Less smoothing for more precise analysis
+                    source.connect(analyser);
+
+                    audioContextRef.current = audioContext;
+                    analyserRef.current = analyser;
+                    sourceRef.current = source;
+                    streamRef.current = stream;
+
+                    console.log('Audio setup complete, starting analysis...');
+                    setAudioState(prev => ({
+                        ...prev,
+                        isRecording: true,
+                        isAnalyzing: true,
+                    }));
+
+                    startAnalysisLoop();
+
+                } catch (error) {
+                    console.error('Error starting audio recording:', error);
+                    let errorMessage = 'Failed to start recording';
+
+                    if (error.name === 'NotAllowedError') {
+                        errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+                    } else if (error.name === 'NotFoundError') {
+                        errorMessage = 'No microphone found. Please connect a microphone and try again.';
+                    } else if (error.name === 'NotSupportedError') {
+                        errorMessage = 'Microphone not supported in this browser.';
+                    } else {
+                        errorMessage = error.message || errorMessage;
+                    }
+
+                    setAudioState(prev => ({
+                        ...prev,
+                        error: errorMessage,
+                    }));
+                }
+            }, []);
+
+            const stopRecording = useCallback(() => {
+                if (animationFrameRef.current) {
+                    cancelAnimationFrame(animationFrameRef.current);
+                    animationFrameRef.current = null;
+                }
+
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                }
+
+                if (audioContextRef.current) {
+                    audioContextRef.current.close();
+                    audioContextRef.current = null;
+                }
+
+                analyserRef.current = null;
+                sourceRef.current = null;
+
+                setAudioState(prev => ({
+                    ...prev,
+                    isRecording: false,
+                    isAnalyzing: false,
+                    volume: 0,
+                }));
+
+                setAnalysisResults({
+                    pitch: null,
+                    formants: null,
+                    vowel: null,
+                    spectrogram: [],
+                    audioLevel: 0,
+                });
+
+                setPitchHistory([]);
+            }, []);
+
+            const startAnalysisLoop = useCallback(() => {
+                console.log('Starting analysis loop...');
+
+                const analyze = () => {
+                    if (!analyserRef.current || !audioContextRef.current) {
+                        console.log('No analyser or audio context, stopping analysis');
+                        return;
+                    }
+
+                    try {
+                        const bufferLength = analyserRef.current.frequencyBinCount;
+                        const dataArray = new Float32Array(bufferLength);
+                        const frequencyData = new Float32Array(bufferLength);
+
+                        analyserRef.current.getFloatTimeDomainData(dataArray);
+                        analyserRef.current.getFloatFrequencyData(frequencyData);
+
+                        // Simple volume calculation
+                        let sum = 0;
+                        for (let i = 0; i < dataArray.length; i++) {
+                            sum += dataArray[i] * dataArray[i];
+                        }
+                        const volume = Math.sqrt(sum / dataArray.length);
+
+                        console.log('Volume:', volume); // Debug log
+
+                        // Enhanced formant detection with cepstrum analysis
+                        let formants = null;
+                        const sampleRate = audioContextRef.current.sampleRate;
+                        const nyquist = sampleRate / 2;
+                        const binWidth = nyquist / bufferLength;
+
+                        // Convert dB to linear for peak detection
+                        const linearMagnitudes = new Float32Array(bufferLength);
+                        for (let i = 0; i < bufferLength; i++) {
+                            linearMagnitudes[i] = Math.pow(10, frequencyData[i] / 20);
+                        }
+
+                        // Cepstrum analysis for better peak detection
+                        const cepstrum = new Float32Array(bufferLength);
+
+                        // Apply log to get log spectrum
+                        const logSpectrum = new Float32Array(bufferLength);
+                        for (let i = 0; i < bufferLength; i++) {
+                            logSpectrum[i] = Math.log(Math.max(linearMagnitudes[i], 1e-10));
+                        }
+
+                        // Simple cepstrum approximation (inverse FFT would be ideal, but this works)
+                        for (let i = 0; i < bufferLength; i++) {
+                            cepstrum[i] = logSpectrum[i];
+                        }
+
+                        // Enhanced peak detection with cepstrum
+                        const enhancedMagnitudes = new Float32Array(bufferLength);
+                        for (let i = 0; i < bufferLength; i++) {
+                            // Combine original magnitude with cepstral information
+                            enhancedMagnitudes[i] = linearMagnitudes[i] * (1 + Math.abs(cepstrum[i]) * 0.5);
+                        }
+
+                        // Find formant peaks (F1, F2, F3)
+                        const peaks = [];
+                        const minFormantSeparation = 200; // Hz
+
+                        for (let i = 5; i < bufferLength - 5; i++) {
+                            const freq = i * binWidth;
+                            if (freq < 200 || freq > 4000) continue; // Formant range
+
+                            // Check if this is a local maximum using enhanced magnitudes
+                            if (enhancedMagnitudes[i] > enhancedMagnitudes[i - 1] &&
+                                enhancedMagnitudes[i] > enhancedMagnitudes[i + 1] &&
+                                enhancedMagnitudes[i] > enhancedMagnitudes[i - 2] &&
+                                enhancedMagnitudes[i] > enhancedMagnitudes[i + 2] &&
+                                enhancedMagnitudes[i] > 0.01) { // Minimum magnitude threshold
+
+                                // Check separation from existing peaks
+                                const tooClose = peaks.some(peak =>
+                                    Math.abs(peak.frequency - freq) < minFormantSeparation
+                                );
+
+                                if (!tooClose) {
+                                    peaks.push({
+                                        frequency: freq,
+                                        magnitude: enhancedMagnitudes[i],
+                                        originalMagnitude: linearMagnitudes[i],
+                                        bin: i
+                                    });
+                                }
+                            }
+                        }
+
+                        // Sort by magnitude and take top peaks as formants
+                        peaks.sort((a, b) => b.magnitude - a.magnitude);
+                        const formantPeaks = peaks.slice(0, 3).sort((a, b) => a.frequency - b.frequency);
+
+                        if (formantPeaks.length >= 2) {
+                            formants = {
+                                f1: formantPeaks[0]?.frequency || null,
+                                f2: formantPeaks[1]?.frequency || null,
+                                f3: formantPeaks[2]?.frequency || null,
+                                confidence: Math.min(formantPeaks[0]?.magnitude || 0, formantPeaks[1]?.magnitude || 0)
+                            };
+                        }
+
+                        // Simple pitch detection (basic autocorrelation)
+                        let pitch = null;
+
+                        // Basic autocorrelation for pitch detection
+                        const autocorrelation = new Float32Array(bufferLength);
+                        for (let lag = 0; lag < bufferLength; lag++) {
+                            let sum = 0;
+                            for (let i = 0; i < bufferLength - lag; i++) {
+                                sum += dataArray[i] * dataArray[i + lag];
+                            }
+                            autocorrelation[lag] = sum;
+                        }
+
+                        let maxValue = 0;
+                        let bestLag = 0;
+                        const minPeriod = Math.floor(sampleRate / 800);
+                        const maxPeriod = Math.floor(sampleRate / 80);
+
+                        for (let lag = minPeriod; lag < Math.min(maxPeriod, bufferLength / 2); lag++) {
+                            if (autocorrelation[lag] > maxValue) {
+                                maxValue = autocorrelation[lag];
+                                bestLag = lag;
+                            }
+                        }
+
+                        if (maxValue > 0.1 && bestLag > 0) { // Lower threshold for easier detection
+                            const frequency = sampleRate / bestLag;
+                            const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                            const A4 = 440;
+                            const midiNumber = Math.round(12 * Math.log2(frequency / A4) + 69);
+                            const noteIndex = midiNumber % 12;
+                            const octave = Math.floor(midiNumber / 12) - 1;
+
+                            pitch = {
+                                frequency,
+                                note: noteNames[noteIndex],
+                                octave,
+                                confidence: maxValue,
+                            };
+
+                            console.log('Pitch detected:', pitch); // Debug log
+                        }
+
+                        // Generate enhanced spectrogram data for current frame
+                        const spectrogramData = [];
+                        for (let i = 0; i < bufferLength; i++) {
+                            const freq = i * binWidth;
+                            if (freq >= 80 && freq <= 4000) { // Voice range
+                                // Use enhanced magnitude for better peak visibility
+                                const enhancedDb = 20 * Math.log10(Math.max(enhancedMagnitudes[i], 1e-10));
+                                const originalDb = frequencyData[i];
+
+                                // Increase contrast for high power signals
+                                let finalMagnitude = enhancedDb;
+                                if (enhancedDb > -40) { // High power threshold
+                                    finalMagnitude = enhancedDb + (enhancedDb + 40) * 0.5; // Boost high power
+                                }
+
+                                spectrogramData.push({
+                                    frequency: freq,
+                                    magnitude: finalMagnitude,
+                                    originalMagnitude: originalDb,
+                                    enhanced: enhancedMagnitudes[i],
+                                    bin: i
+                                });
+                            }
+                        }
+
+                        const newResults = {
+                            pitch,
+                            formants,
+                            vowel: null,
+                            spectrogram: spectrogramData,
+                            audioLevel: Math.min(1, volume * 50), // Increased sensitivity
+                        };
+
+                        setAnalysisResults(newResults);
+
+                        setAudioState(prev => ({
+                            ...prev,
+                            volume: Math.min(1, volume * 50), // Increased sensitivity
+                        }));
+
+                        // Add to pitch history (always, even if no pitch detected)
+                        const timestamp = Date.now();
+                        const historyEntry = {
+                            timestamp,
+                            frequency: pitch ? pitch.frequency : null,
+                            note: pitch ? pitch.note : null,
+                            octave: pitch ? pitch.octave : null,
+                            confidence: pitch ? pitch.confidence : 0,
+                            volume: Math.min(1, volume * 50),
+                            formants: formants,
+                            spectrogram: spectrogramData,
+                        };
+
+                        setPitchHistory(prev => {
+                            const newHistory = [...prev, historyEntry];
+                            // Keep only last 300 entries (about 5 seconds at 60fps)
+                            return newHistory.slice(-300);
+                        });
+
+                        // Continue the loop
+                        if (audioContextRef.current && analyserRef.current) {
+                            animationFrameRef.current = requestAnimationFrame(analyze);
+                        }
+                    } catch (error) {
+                        console.error('Analysis error:', error);
+                        // Continue the loop even if there's an error
+                        if (audioContextRef.current && analyserRef.current) {
+                            animationFrameRef.current = requestAnimationFrame(analyze);
+                        }
+                    }
+                };
+
+                // Start the analysis loop
+                animationFrameRef.current = requestAnimationFrame(analyze);
+            }, []);
+
+            useEffect(() => {
+                return () => {
+                    stopRecording();
+                };
+            }, [stopRecording]);
+
+            return {
+                audioState,
+                analysisResults,
+                pitchHistory,
+                startRecording,
+                stopRecording,
+            };
+        }
+
+        // Enhanced Pitch History with Spectrogram and Formants
+        function PitchHistoryChart({ pitchHistory, isRecording }) {
+            const canvasRef = useRef(null);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+
+                const width = canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+                const height = canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+                ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+                const displayWidth = canvas.offsetWidth;
+                const displayHeight = canvas.offsetHeight;
+
+                // Clear canvas
+                ctx.fillStyle = '#111827';
+                ctx.fillRect(0, 0, displayWidth, displayHeight);
+
+                if (pitchHistory.length === 0) return;
+
+                const timeSpan = 5000; // 5 seconds
+                const currentTime = Date.now();
+                const minFreq = 80;
+                const maxFreq = 4000;
+                const logMinFreq = Math.log10(minFreq);
+                const logMaxFreq = Math.log10(maxFreq);
+
+                // Draw enhanced spectrogram background with proper frequency mapping
+                const timeSliceWidth = Math.max(2, displayWidth / Math.max(pitchHistory.length, 100));
+
+                pitchHistory.forEach((entry, timeIndex) => {
+                    if (!entry.spectrogram || entry.spectrogram.length === 0) return;
+
+                    const x = ((entry.timestamp - (currentTime - timeSpan)) / timeSpan) * displayWidth;
+                    if (x < -timeSliceWidth || x > displayWidth + timeSliceWidth) return;
+
+                    // Create a continuous vertical line by interpolating across all frequencies
+                    for (let pixelY = 0; pixelY < displayHeight; pixelY += 1) {
+                        // Fix the inverted scale by using pixelY directly for frequency mapping
+                        const normalizedFreq = pixelY / displayHeight;
+                        const logFreq = logMinFreq + normalizedFreq * (logMaxFreq - logMinFreq);
+                        const targetFreq = Math.pow(10, logFreq);
+
+                        // Find the closest spectrogram points for interpolation
+                        let intensity = 0;
+                        let closestPoint = null;
+                        let minDistance = Infinity;
+
+                        entry.spectrogram.forEach(point => {
+                            const distance = Math.abs(point.frequency - targetFreq);
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                closestPoint = point;
+                            }
+                        });
+
+                        if (closestPoint && minDistance < 100) { // Within 100Hz tolerance
+                            // Enhanced magnitude range with better contrast
+                            intensity = Math.max(0, Math.min(1, (closestPoint.magnitude + 120) / 100));
+
+                            // Apply gamma correction for better contrast on high power
+                            intensity = Math.pow(intensity, 0.7);
+
+                            // INVERT THE CEPSTRUM - high power becomes low intensity (upside down effect)
+                            intensity = 1.0 - intensity;
+
+                            if (intensity < 0.9) { // Only draw if above noise floor (inverted logic)
+                                // Enhanced color mapping with better contrast (inverted)
+                                let r, g, b;
+                                // Since intensity is now inverted, low values = high power
+                                const originalIntensity = 1.0 - intensity; // Convert back for color mapping
+
+                                if (originalIntensity < 0.2) {
+                                    // Dark blue (low power)
+                                    r = 0;
+                                    g = 0;
+                                    b = Math.floor(originalIntensity * 5 * 255);
+                                } else if (originalIntensity < 0.4) {
+                                    // Blue to cyan
+                                    r = 0;
+                                    g = Math.floor((originalIntensity - 0.2) * 5 * 255);
+                                    b = 255;
+                                } else if (originalIntensity < 0.6) {
+                                    // Cyan to green
+                                    r = 0;
+                                    g = 255;
+                                    b = Math.floor((0.6 - originalIntensity) * 5 * 255);
+                                } else if (originalIntensity < 0.8) {
+                                    // Green to yellow
+                                    r = Math.floor((originalIntensity - 0.6) * 5 * 255);
+                                    g = 255;
+                                    b = 0;
+                                } else {
+                                    // Yellow to red (high power - now appears as valleys)
+                                    r = 255;
+                                    g = Math.floor((1 - originalIntensity) * 5 * 255);
+                                    b = 0;
+                                }
+
+                                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(1, originalIntensity * 1.2)})`;
+                                // Increase the width and height to eliminate gaps
+                                ctx.fillRect(x, pixelY, timeSliceWidth + 1, 2);
+                            }
+                        }
+                    }
+                });
+
+                // Draw grid lines and scales
+                ctx.strokeStyle = '#374151';
+                ctx.lineWidth = 1;
+
+                // Musical note frequencies for reference
+                const musicalNotes = [
+                    { note: 'C2', freq: 65.4 },
+                    { note: 'C3', freq: 130.8 },
+                    { note: 'C4', freq: 261.6 },
+                    { note: 'C5', freq: 523.3 },
+                    { note: 'C6', freq: 1046.5 },
+                    { note: 'C7', freq: 2093.0 },
+                    { note: 'C8', freq: 4186.0 },
+                    // Add some other important notes
+                    { note: 'A2', freq: 110.0 },
+                    { note: 'A3', freq: 220.0 },
+                    { note: 'A4', freq: 440.0 },
+                    { note: 'A5', freq: 880.0 },
+                    { note: 'A6', freq: 1760.0 },
+                    { note: 'A7', freq: 3520.0 },
+                ];
+
+                // Hz grid lines
+                const frequencies = [100, 200, 500, 1000, 2000, 4000];
+                frequencies.forEach(freq => {
+                    const logFreq = Math.log10(freq);
+                    const normalizedFreq = (logFreq - logMinFreq) / (logMaxFreq - logMinFreq);
+                    // Fix the grid lines to match the new frequency mapping
+                    const y = normalizedFreq * displayHeight;
+
+                    if (y >= 0 && y <= displayHeight) {
+                        ctx.setLineDash([1, 3]);
+                        ctx.beginPath();
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(displayWidth, y);
+                        ctx.stroke();
+
+                        // Hz Labels on the left - INVERTED POSITION
+                        ctx.fillStyle = '#9CA3AF';
+                        ctx.font = '10px -apple-system';
+                        const invertedY = displayHeight - y;
+                        ctx.fillText(`${freq}Hz`, 5, invertedY - 2);
+                    }
+                });
+
+                // Musical note grid lines
+                musicalNotes.forEach(noteData => {
+                    if (noteData.freq < minFreq || noteData.freq > maxFreq) return;
+
+                    const logFreq = Math.log10(noteData.freq);
+                    const normalizedFreq = (logFreq - logMinFreq) / (logMaxFreq - logMinFreq);
+                    // Fix the musical note grid lines to match the new frequency mapping
+                    const y = normalizedFreq * displayHeight;
+
+                    if (y >= 0 && y <= displayHeight) {
+                        // Lighter grid line for musical notes
+                        ctx.strokeStyle = '#4B5563';
+                        ctx.setLineDash([2, 6]);
+                        ctx.beginPath();
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(displayWidth, y);
+                        ctx.stroke();
+
+                        // Musical note labels on the right - INVERTED POSITION
+                        ctx.fillStyle = '#D1D5DB';
+                        ctx.font = 'bold 10px -apple-system';
+                        ctx.textAlign = 'right';
+                        const invertedY = displayHeight - y;
+                        ctx.fillText(noteData.note, displayWidth - 5, invertedY - 2);
+                        ctx.textAlign = 'left';
+                    }
+                });
+
+                ctx.setLineDash([]);
+                ctx.strokeStyle = '#374151'; // Reset stroke style
+
+                // Draw formant tracks (F1, F2, F3)
+                const formantColors = ['#FF3B30', '#007AFF', '#AF52DE']; // Red, Blue, Purple
+                const formantLabels = ['F1', 'F2', 'F3'];
+
+                for (let formantIndex = 0; formantIndex < 3; formantIndex++) {
+                    ctx.strokeStyle = formantColors[formantIndex];
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+
+                    let firstPoint = true;
+                    pitchHistory.forEach((entry) => {
+                        if (!entry.formants) return;
+
+                        let freq;
+                        if (formantIndex === 0) freq = entry.formants.f1;
+                        else if (formantIndex === 1) freq = entry.formants.f2;
+                        else freq = entry.formants.f3;
+
+                        if (!freq || freq < minFreq || freq > maxFreq) return;
+
+                        const x = ((entry.timestamp - (currentTime - timeSpan)) / timeSpan) * displayWidth;
+                        const logFreq = Math.log10(freq);
+                        const normalizedFreq = (logFreq - logMinFreq) / (logMaxFreq - logMinFreq);
+                        // Fix the formant tracking to match the new frequency mapping
+                        const y = normalizedFreq * displayHeight;
+
+                        if (x >= 0 && x <= displayWidth && y >= 0 && y <= displayHeight) {
+                            if (firstPoint) {
+                                ctx.moveTo(x, y);
+                                firstPoint = false;
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+
+                            // Draw formant point
+                            ctx.save();
+                            ctx.fillStyle = formantColors[formantIndex];
+                            ctx.beginPath();
+                            ctx.arc(x, y, 3, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.restore();
+                        }
+                    });
+
+                    ctx.stroke();
+                }
+
+                // Draw pitch history line
+                if (pitchHistory.length > 1) {
+                    ctx.strokeStyle = '#FFFFFF';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+
+                    let firstPoint = true;
+                    pitchHistory.forEach((entry) => {
+                        if (!entry.frequency) return;
+
+                        const x = ((entry.timestamp - (currentTime - timeSpan)) / timeSpan) * displayWidth;
+                        const logFreq = Math.log10(entry.frequency);
+                        const normalizedFreq = (logFreq - logMinFreq) / (logMaxFreq - logMinFreq);
+                        // Fix the pitch tracking to match the new frequency mapping
+                        const y = normalizedFreq * displayHeight;
+
+                        if (x >= 0 && x <= displayWidth && y >= 0 && y <= displayHeight) {
+                            if (firstPoint) {
+                                ctx.moveTo(x, y);
+                                firstPoint = false;
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+
+                            // Draw pitch point with confidence
+                            const opacity = Math.max(0.5, entry.confidence);
+                            ctx.save();
+                            ctx.globalAlpha = opacity;
+                            ctx.fillStyle = '#FFFFFF';
+                            ctx.beginPath();
+                            ctx.arc(x, y, 2, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.restore();
+                        }
+                    });
+
+                    ctx.stroke();
+                }
+
+            }, [pitchHistory]);
+
+            return (
+                <div className="glass-panel p-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xl font-semibold">Voice Analysis Timeline</h2>
+                        <div className="flex items-center space-x-4 text-xs">
+                            <div className="flex items-center space-x-1">
+                                <div className="w-3 h-1 bg-white"></div>
+                                <span className="text-gray-400">Pitch</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                                <div className="w-3 h-1 bg-red-500"></div>
+                                <span className="text-gray-400">F1</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                                <div className="w-3 h-1 bg-blue-500"></div>
+                                <span className="text-gray-400">F2</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                                <div className="w-3 h-1 bg-purple-500"></div>
+                                <span className="text-gray-400">F3</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ height: '300px' }}>
+                        <canvas
+                            ref={canvasRef}
+                            className="w-full h-full"
+                            style={{ width: '100%', height: '100%' }}
+                        />
+
+                        {/* No pitch detected overlay */}
+                        {isRecording && pitchHistory.length > 0 && !pitchHistory.slice(-10).some(entry => entry.frequency) && (
+                            <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-sm text-gray-300 border border-gray-600">
+                                <div className="flex items-center space-x-2">
+                                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse"></div>
+                                    <span>No pitch detected</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {pitchHistory.length === 0 && (
+                            <div className="absolute inset-0 flex items-center justify-center text-gray-500">
+                                <div className="text-center">
+                                    <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+                                    </svg>
+                                    <p className="text-lg">Voice Analysis Timeline</p>
+                                    <p className="text-sm mt-2">Start recording to see spectrogram, pitch, and formants</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Legend overlay */}
+                        {pitchHistory.length > 0 && (
+                            <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-xs text-gray-300 border border-gray-600">
+                                <div className="font-semibold mb-1">Inverted Cepstrum Voice Analysis</div>
+                                <div>• Inverted cepstrum: High power appears as valleys</div>
+                                <div>• Color intensity: Blue → Cyan → Green → Yellow → Red</div>
+                                <div>• Left: Frequency (Hz) | Right: Musical notes</div>
+                                <div>• Lines: White (F0/pitch), Red (F1), Blue (F2), Purple (F3)</div>
+                                <div>• Spectral peaks highlighted as colored valleys</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Main App Component
+        function App() {
+            const { audioState, analysisResults, pitchHistory, startRecording, stopRecording } = useAudioAnalysis();
+
+            return (
+                <div className="min-h-screen p-6">
+                    {/* Header */}
+                    <header className="glass-panel p-6 mb-8">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                                    <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+                                        <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                                        <line x1="12" y1="19" x2="12" y2="23"/>
+                                        <line x1="8" y1="23" x2="16" y2="23"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                                        Voice Augment
+                                    </h1>
+                                    <p className="text-gray-400">Real-time Voice Analysis & Visualization</p>
+                                </div>
+                            </div>
+
+                            {audioState.isRecording && (
+                                <div className="flex items-center space-x-2">
+                                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                                    <span className="text-red-400 font-medium">Recording</span>
+                                </div>
+                            )}
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Microphone Control */}
+                        <div className="glass-panel p-6">
+                            <h2 className="text-xl font-semibold mb-6">Microphone Control</h2>
+
+                            <div className="flex flex-col items-center space-y-6">
+                                <button
+                                    onClick={audioState.isRecording ? stopRecording : startRecording}
+                                    className={`mic-button ${audioState.isRecording ? 'recording' : 'not-recording'}`}
+                                    disabled={!!audioState.error}
+                                >
+                                    <div className="flex items-center justify-center w-full h-full relative z-10">
+                                        {audioState.isRecording ? (
+                                            <div className="w-6 h-6 bg-white rounded-sm"></div>
+                                        ) : (
+                                            <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+                                                <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                                <line x1="8" y1="23" x2="16" y2="23"/>
+                                            </svg>
+                                        )}
+                                    </div>
+                                    {audioState.isRecording && <div className="pulse-ring"></div>}
+                                </button>
+
+                                {audioState.isRecording && (
+                                    <div className="w-full space-y-2">
+                                        <div className="flex justify-between text-sm text-gray-400">
+                                            <span>Input Level</span>
+                                            <span>{Math.round(audioState.volume * 100)}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                                            <div
+                                                className="h-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 transition-all duration-100"
+                                                style={{ width: `${Math.min(100, audioState.volume * 100)}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {audioState.error && (
+                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg w-full">
+                                        <div className="flex items-center space-x-2">
+                                            <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                            </svg>
+                                            <span className="text-sm text-red-500">{audioState.error}</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {!audioState.isRecording && !audioState.error && (
+                                    <div className="text-center text-gray-400 text-sm">
+                                        <p>Click the microphone to start voice analysis</p>
+                                        <p className="mt-1">Make sure to allow microphone access when prompted</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Analysis Results */}
+                        <div className="glass-panel p-6">
+                            <h2 className="text-xl font-semibold mb-6">Analysis Results</h2>
+
+                            {/* Debug Info */}
+                            {audioState.isRecording && (
+                                <div className="mb-4 p-3 bg-gray-800 rounded-lg text-xs">
+                                    <div>Recording: {audioState.isRecording ? 'Yes' : 'No'}</div>
+                                    <div>Volume: {Math.round(audioState.volume * 100)}%</div>
+                                    <div>Audio Level: {Math.round(analysisResults.audioLevel * 100)}%</div>
+                                    <div>Pitch: {analysisResults.pitch ? 'Detected' : 'None'}</div>
+                                </div>
+                            )}
+
+                            {analysisResults.pitch ? (
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <div className="text-sm text-gray-400 mb-1">Frequency</div>
+                                            <div className="text-2xl font-bold text-blue-400">
+                                                {Math.round(analysisResults.pitch.frequency)} Hz
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="text-sm text-gray-400 mb-1">Musical Note</div>
+                                            <div className="text-2xl font-bold text-green-400">
+                                                {analysisResults.pitch.note}{analysisResults.pitch.octave}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-sm text-gray-400 mb-2">Confidence</div>
+                                        <div className="w-full bg-gray-700 rounded-full h-2">
+                                            <div
+                                                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                                                style={{ width: `${Math.min(100, analysisResults.pitch.confidence * 100)}%` }}
+                                            ></div>
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-1">
+                                            {Math.round(analysisResults.pitch.confidence * 100)}%
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center text-gray-500 py-12">
+                                    {audioState.isRecording ? (
+                                        <div>
+                                            <div className="animate-pulse mb-4">
+                                                <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+                                                    <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                                                </svg>
+                                            </div>
+                                            <p className="text-lg">Listening for audio...</p>
+                                            <p className="text-sm mt-2">Speak, sing, or hum louder to detect pitch</p>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                                            </svg>
+                                            <p className="text-lg">Start recording to see analysis</p>
+                                            <p className="text-sm mt-2">Speak, sing, or hum to analyze your voice</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Pitch Timeline */}
+                    <div className="mt-8">
+                        <PitchHistoryChart pitchHistory={pitchHistory} isRecording={audioState.isRecording} />
+                    </div>
+
+                    {/* Features Section */}
+                    {!audioState.isRecording && !audioState.error && (
+                        <div className="glass-panel p-8 mt-8">
+                            <h2 className="text-2xl font-bold mb-6 text-center">Features</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                <div className="text-center space-y-3">
+                                    <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center mx-auto">
+                                        <svg className="w-6 h-6 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+                                        </svg>
+                                    </div>
+                                    <h3 className="font-semibold">Real-time Spectrogram</h3>
+                                    <p className="text-sm text-gray-400">
+                                        Visualize frequency content over time with formant highlighting
+                                    </p>
+                                </div>
+
+                                <div className="text-center space-y-3">
+                                    <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center mx-auto">
+                                        <svg className="w-6 h-6 text-green-400" fill="currentColor" viewBox="0 0 24 24">
+                                            <circle cx="12" cy="12" r="3"/>
+                                            <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>
+                                        </svg>
+                                    </div>
+                                    <h3 className="font-semibold">Formant Tracking</h3>
+                                    <p className="text-sm text-gray-400">
+                                        Track F1 and F2 formants with vowel space visualization
+                                    </p>
+                                </div>
+
+                                <div className="text-center space-y-3">
+                                    <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mx-auto">
+                                        <svg className="w-6 h-6 text-purple-400" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                                        </svg>
+                                    </div>
+                                    <h3 className="font-semibold">Pitch Detection</h3>
+                                    <p className="text-sm text-gray-400">
+                                        Accurate fundamental frequency and musical note identification
+                                    </p>
+                                </div>
+
+                                <div className="text-center space-y-3">
+                                    <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto">
+                                        <svg className="w-6 h-6 text-orange-400" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M9 12l2 2 4-4"/>
+                                        </svg>
+                                    </div>
+                                    <h3 className="font-semibold">Singing Analysis</h3>
+                                    <p className="text-sm text-gray-400">
+                                        Real-time feedback for vocal training and pitch accuracy
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Footer */}
+                    <footer className="text-center text-gray-400 text-sm mt-12 py-6">
+                        <p>Built with Web Audio API, React, and modern web technologies</p>
+                        <p className="mt-1">Low-latency audio processing • Real-time visualization</p>
+                    </footer>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
