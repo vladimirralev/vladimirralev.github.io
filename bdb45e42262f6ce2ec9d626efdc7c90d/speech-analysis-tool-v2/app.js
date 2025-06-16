@@ -50,7 +50,7 @@ class SpeechAnalyzer {
         this.vowelCanvas.height = this.vowelHeight * 2;
         this.vowelCtx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
         this.vowelCtx.scale(2, 2); // Scale context to match the display size
-        this.freqBins = 256; // Default frequency bins, updated later if needed
+        this.freqBins = 2048; // Default frequency bins, updated later if needed
         // Ensure initial rendering matches resized rendering
         this.drawVowelChart();
     }
