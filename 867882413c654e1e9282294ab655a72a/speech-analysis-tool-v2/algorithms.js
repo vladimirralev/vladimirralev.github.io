@@ -25,7 +25,7 @@ export function estimateFormants(freqData, sampleRate) {
             f1 = freq;
         }
         // Second formant typically between 800-2500 Hz
-        if (freq > 580 && freq < 2500 && value > max2 && i > f1Bin + 10) {
+        if (freq > 604 && freq < 2500 && value > max2 && i > f1Bin + 10) {
             max2 = value;
             f2Bin = i;
             f2 = freq;

@@ -214,7 +214,7 @@ class SpeechAnalyzer {
     
     
     drawSpectrum() {
-        this.spectrumCtx.clearRect(0, 0, this.spectrumWidth * 2, this.spectrumHeight * 2);
+        this.spectrumCtx.clearRect(0, 0, this.spectrumWidth * 2, this.spectrumHeight * 2 - 200);
         
         const maxFreq = 3500; // Focus on 0-3500 Hz
         const sampleRate = this.audioContext ? this.audioContext.sampleRate : 44100;
@@ -290,18 +290,18 @@ class SpeechAnalyzer {
     drawLiveSpectrumSidebar(voiceprintWidth, maxFreq, maxBin, binHeight, latestFormants) {
         const sidebarWidth = 100; // Reduced to 100px at 2x resolution to ensure visibility
         // Use a hardcoded value for sidebarStartX to ensure it's within visible bounds and doesn't overlap voiceprint
-        const sidebarStartX = 800; // Adjusted to shift further right and avoid overlap with voiceprint
-        
+        const sidebarStartX = this.spectrumWidth - sidebarWidth +1 ; // Adjusted to shift further right and avoid overlap with voiceprint
+        //console.log("curr wid", this.spectrumWidth ) ;
         // Clear the entire canvas area for sidebar to ensure no overlap issues
         this.spectrumCtx.clearRect(sidebarStartX, 0, sidebarWidth, this.spectrumHeight);
         
         // Draw background for sidebar with a distinct color to confirm visibility
-        this.spectrumCtx.fillStyle = 'rgba(80, 80, 80, 0.9)';
+        this.spectrumCtx.fillStyle = 'rgba(3, 3, 3, 1.0)';
         this.spectrumCtx.fillRect(sidebarStartX, 0, sidebarWidth, this.spectrumHeight);
         
         // Draw border for sidebar
-        this.spectrumCtx.strokeStyle = 'rgba(255, 255, 0, 1.0)'; // Bright yellow for visibility
-        this.spectrumCtx.lineWidth = 2; // Thicker line to ensure visibility
+        this.spectrumCtx.strokeStyle = 'rgba(255, 255, 0, 0.6)'; // Bright yellow for visibility
+        this.spectrumCtx.lineWidth = 1; // Thicker line to ensure visibility
         this.spectrumCtx.beginPath();
         this.spectrumCtx.moveTo(sidebarStartX, 0);
         this.spectrumCtx.lineTo(sidebarStartX, this.spectrumHeight);
@@ -331,7 +331,7 @@ class SpeechAnalyzer {
                 // Normalize power as proportion of total power
                 const normalizedValue = rawValue / totalPower;
                 // Apply logarithmic scaling to emphasize peaks (adding 1 to avoid log(0))
-                const logValue = Math.log(1 + normalizedValue * 100) / Math.log(101) * 255;
+                const logValue = Math.log(1 + normalizedValue * 100) / Math.log(14) * 255;
                 const value = Math.min(Math.max(logValue, 0), 255); // Clamp to valid range
                 const rgb = this.getColorForPower(value);
                 const powerWidth = (value / 255) * barWidth; // Scale width based on log value
@@ -346,9 +346,9 @@ class SpeechAnalyzer {
                 const f1Y = ((this.spectrumHeight) - (latestFormants.f1 / maxFreq) * (this.spectrumHeight)); // Scale to canvas resolution
                 const f2Y = ((this.spectrumHeight) - (latestFormants.f2 / maxFreq) * (this.spectrumHeight)); // Scale to canvas resolution
                 
-                this.spectrumCtx.strokeStyle = 'rgba(0, 255, 255, 1.0)'; // Cyan for visibility
+                this.spectrumCtx.strokeStyle = 'rgba(0, 255, 255, 0.7)'; // Cyan for visibility
                 this.spectrumCtx.lineWidth = 2; // Thicker line for visibility
-                this.spectrumCtx.fillStyle = 'rgba(255, 255, 255, 1.0)';
+                this.spectrumCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
                 this.spectrumCtx.font = '12px Arial'; // Font for visibility
                 
                 // F1 line
