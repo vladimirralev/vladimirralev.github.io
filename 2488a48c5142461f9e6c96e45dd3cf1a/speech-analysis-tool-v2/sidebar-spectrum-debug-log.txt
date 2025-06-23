@@ -1,0 +1,109 @@
+Sidebar Spectrum Debug Log
+==========================
+
+Date: 19/06/2025
+
+Purpose: This file logs the attempts made to fix the issue of the sidebar spectrum appearing black and not updating in the Speech Analysis Tool. Each attempt will be documented with the approach taken, the code changes made, and the observed result.
+
+Attempt 1:
+- Date: 19/06/2025
+- Approach: Initial implementation of the sidebar spectrum in `drawLiveSpectrumSidebar`. Reserved 400 pixels (200px at 2x resolution) for the sidebar on the right. Rendered horizontal bars for power values from the latest spectrum data, with F1 and F2 tracking lines.
+- Code Changes: Added `drawLiveSpectrumSidebar` method to render bars based on `latestSpectrum` data with Y-positioning as `(this.spectrumHeight * 2) - (j + 1) * binHeight`.
+- Result: Sidebar appeared black and did not update. User reported no visible change.
+
+Attempt 2:
+- Date: 19/06/2025
+- Approach: Updated the sidebar spectrum visualization to improve contrast and visibility. Adjusted bar widths, added a darker background, included outlines for significant power values, used thicker F1 and F2 tracking lines, and positioned numerical labels next to the lines.
+- Code Changes: Modified `drawLiveSpectrumSidebar` to use a darker background (`rgba(30, 30, 30, 0.8)`), adjusted bar width to `sidebarWidth * 0.8`, added conditional outlines for power values > 10, increased tracking line width to 3, and positioned labels at `sidebarStartX + barWidth - 60`.
+- Result: Sidebar still appeared black and did not update. User reported no visible change.
+
+Attempt 3:
+- Date: 19/06/2025
+- Approach: Revised the Y-positioning calculation to ensure bars are drawn within the visible area. Adjusted the rendering to use frequency-based Y-positioning and added a minimum bar width for visibility of low power values. Increased sidebar background contrast further.
+- Code Changes: Updated `drawLiveSpectrumSidebar` with Y-positioning as `(this.spectrumHeight * 2) - ((freq / maxFreq) * (this.spectrumHeight * 2))`, set minimum bar width with `Math.max(5, (value / 255) * barWidth)`, adjusted background to `rgba(50, 50, 50, 0.9)`, and bar width to `sidebarWidth * 0.9`.
+- Result: Sidebar still appeared black. User reported no visible change.
+
+Attempt 4:
+- Date: 19/06/2025
+- Approach: Added visual debug information to confirm the rendering area of the sidebar spectrum. Included debug text for sidebar dimensions and position, a full border around the sidebar area, and Y-position markers for the first few bars to check if rendering occurs outside the intended area.
+- Code Changes: Updated `drawLiveSpectrumSidebar` to add debug text (`Sidebar Debug`, `StartX`, `Width`, `Height`), drew a full border around the sidebar with `moveTo` and `lineTo`, and added Y-position markers for the first 5 bars with `fillText`.
+- Result: Sidebar still appeared black. User reported no borders or markers visible.
+
+Attempt 5:
+- Date: 19/06/2025
+- Approach: Recalculated the sidebar start X position to ensure it's within canvas bounds using `(this.spectrumWidth * 2) - sidebarWidth`. Reversed the Y-axis calculation to check if frequency mapping is upside-down. Added a bright test rectangle at a fixed position, increased debug element visibility with brighter colors, thicker lines, and larger fonts.
+- Code Changes: Updated `drawLiveSpectrumSidebar` with `sidebarStartX` as `(this.spectrumWidth * 2) - sidebarWidth`, reversed Y-axis with `y = ((freq / maxFreq) * (this.spectrumHeight * 2))`, added test rectangle with `fillRect(sidebarStartX + 10, 10, 50, 50)`, used brighter colors (yellow border, white text), thicker lines (width 4 and 5), larger fonts (20px and 16px), and larger minimum bar width (10).
+- Result: Sidebar still appeared black. User reported no change.
+
+Attempt 6:
+- Date: 19/06/2025
+- Approach: Reset the canvas transform before drawing the sidebar to ensure scaling doesn't affect rendering. Added multiple test rectangles at different positions within the sidebar area and a test rectangle on the main canvas area to confirm context functionality. Simplified the rendering loop to use fixed spacing instead of frequency mapping for testing visibility.
+- Code Changes: Updated `drawLiveSpectrumSidebar` to reset transform with `setTransform(1, 0, 0, 1, 0, 0)` and `scale(2, 2)`, added multiple test rectangles at different positions (`fillRect` at various coordinates), simplified rendering loop to `y = j * 10` with reduced iterations (50), increased minimum bar width to 20, added a test rectangle on main canvas in `drawSpectrum` with `fillRect(50, 50, 100, 100)`.
+- Result: User reported seeing a green test square in the voiceprint area between 2000 and 3000 Hz markers, confirming drawing operations on the main canvas are visible. However, the sidebar remained black on the other side of the canvas.
+
+Attempt 7:
+- Date: 19/06/2025
+- Approach: Adjusted the sidebar start X position to be based on `voiceprintWidth` instead of `spectrumWidth * 2` to ensure it falls within the visible bounds of the canvas. Removed the transform reset to maintain consistency with the main canvas rendering approach.
+- Code Changes: Updated `drawLiveSpectrumSidebar` with `sidebarStartX` as `voiceprintWidth - sidebarWidth`, removed transform reset and scale operations to align with main canvas rendering.
+- Result: User reported still seeing only the green debug square, with no visible sidebar elements.
+
+Attempt 8:
+- Date: 19/06/2025
+- Approach: Set a hardcoded value for `sidebarStartX` to ensure it is well within the visible bounds of the canvas. Reduced the sidebar width to further guarantee it fits within the expected area.
+- Code Changes: Updated `drawLiveSpectrumSidebar` with `sidebarStartX` hardcoded to 600 and `sidebarWidth` reduced to 200 (100px at 2x resolution).
+- Result: User reported that the sidebar is now visible with all border and debug markers, but it's slightly overlapping into the voiceprint area, hiding the last few lines.
+
+Attempt 9:
+- Date: 19/06/2025
+- Approach: Adjusted the `sidebarStartX` to a higher hardcoded value to shift the sidebar further to the right and prevent overlap with the voiceprint area. Updated the `voiceprintWidth` calculation to reserve less space for the sidebar, ensuring the voiceprint data isn't cut off prematurely.
+- Code Changes: Updated `drawLiveSpectrumSidebar` with `sidebarStartX` hardcoded to 800, and updated `voiceprintWidth` in `drawSpectrum` to `(this.spectrumWidth * 2) - 200` to match the sidebar width.
+- Result: User reported that the positioning is good, but the sidebar power spectrum doesn't correspond pixel by pixel with the latest vertical line from the voiceprint, suspecting it is inverted, and prefers to use pixels directly from the latest voiceprint line instead of bins.
+
+Attempt 10:
+- Date: 19/06/2025
+- Approach: Updated the sidebar rendering to mirror the latest vertical line of the voiceprint spectrum pixel by pixel, ensuring Y-axis alignment matches the voiceprint and correcting any inversion by using the same positioning logic as the voiceprint.
+- Code Changes: Updated `drawLiveSpectrumSidebar` to render horizontal lines for each frequency bin using `y = Math.floor((this.spectrumHeight * 2) - (j + 1) * binHeight)` to match the voiceprint's vertical line, removed debug elements and simplified rendering to focus on pixel-by-pixel correspondence.
+- Result: User reported that there seems to be a power threshold in the sidebar preventing display, and it doesn't match the voiceprint. Requested logarithmic scaling to show peaks better and normalization of power to represent proportions of total power for better contrast.
+
+Attempt 11:
+- Date: 19/06/2025
+- Approach: Removed any power threshold by ensuring even low power values are visible, applied logarithmic scaling to emphasize peaks, and normalized power values to represent proportions of total power for improved contrast in the sidebar spectrum.
+- Code Changes: Updated `drawLiveSpectrumSidebar` to calculate total power, normalize values as `rawValue / totalPower`, apply logarithmic scaling with `Math.log(1 + normalizedValue * 100) / Math.log(101) * 255`, and scale bar width based on the logarithmic value.
+- Result: User reported that the sidebar appears to be scaled 2x vertically, causing a mismatch with the voiceprint, and the yellow border extends downwards. Requested to scale it down to test and ensure bars correspond to the voiceprint.
+
+Attempt 12:
+- Date: 19/06/2025
+- Approach: Adjusted the vertical scaling of the sidebar spectrum to match the display resolution rather than the internal canvas resolution, using `this.spectrumHeight` instead of `this.spectrumHeight * 2` for Y-positioning and bin height calculations to correct the 2x scaling issue.
+- Code Changes: Updated `drawLiveSpectrumSidebar` to use `adjustedBinHeight = (this.spectrumHeight) / maxBin` for bin height, calculated Y-position as `y = Math.floor((this.spectrumHeight) - (j + 1) * adjustedBinHeight) * 2` to scale back to canvas resolution, and adjusted F1/F2 line positions using display resolution scaled to canvas resolution.
+- Result: User removed the multiplication by 2 in the `drawLiveSpectrumSidebar` function to adjust vertical scaling and requested to keep it this way without reintroducing the scaling factor.
+
+Observations:
+- The sidebar spectrum data is being updated in `updateCharts()` as `spectrumHistory` is populated with `freqData.slice()`.
+- The rendering loop in `drawLiveSpectrumSidebar` iterates over `maxBin` values, which should cover the frequency range up to 3500 Hz.
+- Even debug markers and borders are not visible, suggesting a fundamental rendering issue, possibly with canvas bounds or context state.
+- User feedback from Attempt 6 confirms that drawing operations on the main canvas are visible, indicating the issue is specific to the sidebar's positioning or canvas bounds calculation.
+- User feedback from Attempt 8 confirms that the sidebar is now visible, but its position needed adjustment to avoid overlapping with the voiceprint area.
+- User feedback from Attempt 9 confirms the positioning is correct, but the sidebar spectrum needs to match the voiceprint's latest vertical line pixel by pixel and correct any inversion.
+- User feedback from Attempt 10 indicates a power threshold issue and mismatch with voiceprint, requesting logarithmic scaling and normalization for better peak visibility and contrast.
+- User feedback from Attempt 11 indicates a vertical scaling issue (2x scaling) causing mismatch with voiceprint and border extension.
+- User action in Attempt 12 confirms the user's preference to remove the 2x scaling factor in Y-positioning calculations.
+- Potential issues could be:
+  1. Y-positioning calculation might be incorrect, causing bars to be drawn outside the visible area.
+  2. The `binHeight` might be too small or large, affecting visibility.
+  3. The power values might be too low to render visible bars.
+  4. The sidebar start X position might be miscalculated, placing the sidebar outside the canvas or overlapping with other elements.
+  5. Canvas context or scaling issues might prevent drawing operations from being visible.
+  6. Inversion or misalignment of the sidebar spectrum compared to the voiceprint's vertical line.
+  7. Power threshold or scaling issues preventing low power values from being displayed.
+  8. Vertical scaling mismatch due to canvas resolution (2x scaling) affecting Y-positioning.
+
+Next Steps:
+- Respect the user's modification to remove the 2x scaling factor in `drawLiveSpectrumSidebar` and ensure future changes do not reintroduce it.
+- Await further user feedback to confirm if the current state of the sidebar spectrum visualization meets their expectations or if additional adjustments are needed.
+- If further issues are reported, consider:
+  - Further verifying the Y-positioning and bin height calculations to match the voiceprint exactly.
+  - Adjusting the logarithmic scaling factor or base to fine-tune peak emphasis.
+  - Verifying the normalization calculation to ensure total power is computed correctly across the relevant frequency range.
+  - Adding a minimum power width to ensure even very low power values are visible as thin bars.
+  - Reversing the Y-positioning calculation if the inversion is still incorrect (e.g., `y = Math.floor(j * adjustedBinHeight)` to flip the axis).
+  - Adding debug markers temporarily to confirm alignment at specific frequency points (e.g., 0 Hz, 3500 Hz).

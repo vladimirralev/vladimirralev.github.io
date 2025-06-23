@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Analysis Tool</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>867882413c654e1e9282294ab655a72a</h1>
+        </header>
+        <div class="controls-panel">
+            <div class="control-group">
+                <label for="inputSelect">Input Source:</label>
+                <select id="inputSelect">
+                    <option value="mic">Microphone</option>
+                    <option value="simulated">Simulated Speech</option>
+                    <option value="test1">Test File 1</option>
+                    <option value="test2">Test File 2</option>
+                    <option value="test3">Test File 3</option>
+                    <option value="test4">Test File 4</option>
+                    <option value="test5">Test File 5</option>
+                    <option value="test6">Test File 6</option>
+                    <option value="test7">Test File 7</option>
+                </select>
+            </div>
+            <div class="control-group" id="micSelection">
+                <label for="micSelect">Microphone:</label>
+                <select id="micSelect"></select>
+            </div>
+            <div class="control-group buttons">
+                <button id="startButton">Start Analysis</button>
+                <button id="stopButton">Stop Analysis</button>
+            </div>
+        </div>
+        <div class="visualization-container">
+            <div class="chart-section">
+                <h2>Vowel Chart (F1 vs F2)</h2>
+                <canvas id="vowelChart" width="400" height="300"></canvas>
+                <div class="formant-info">
+                    <div><span>F1:</span> <span id="f1Value">0</span> Hz</div>
+                    <div><span>F2:</span> <span id="f2Value">0</span> Hz</div>
+                    <div><span>Detected Vowel:</span> <span id="detectedVowel">-</span></div>
+                </div>
+            </div>
+            <div class="chart-section">
+                <h2>Voiceprint Spectrum (0-3500 Hz, Last 5 Seconds)</h2>
+                <canvas id="spectrumChart" width="1000" height="400"></canvas>
+            </div>
+        </div>
+        <div class="chart-section">
+            <h2>Waveform Timeline</h2>
+            <canvas id="waveformChart" width="1000" height="200"></canvas>
+            <div class="waveform-controls">
+                <button id="recordButton">Record</button>
+                <button id="stopRecordButton">Stop Recording</button>
+                <button id="playSelectionButton">Play Selection</button>
+                <div class="selection-info">
+                    <span>Selection:</span>
+                    <span id="selectionStart">0.0s</span> - <span id="selectionEnd">0.0s</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
