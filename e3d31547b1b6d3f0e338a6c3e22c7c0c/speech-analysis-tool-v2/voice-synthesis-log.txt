@@ -1,0 +1,32 @@
+Voice Synthesis Development Log
+Date: 25/06/2025
+
+Objective: To generate a synthetic signal live based on mouse position in a vowel chart, with the signal audible only when the mouse button is down, and to make the voice sound as human-like as possible.
+
+Attempt 1: Initial Implementation
+- Date: 25/06/2025
+- Description: Added functionality to track mouse position over the vowel chart canvas, convert coordinates to F1 and F2 frequencies, and generate audio using two sine wave oscillators for F1 and F2 formants.
+- Outcome: The basic functionality worked, producing sound based on mouse position when the button was down. However, the sound was very synthetic, lacking depth and realism as it only included two formants.
+- Issue: User feedback indicated the voice did not sound human-like.
+
+Attempt 2: Adding Pitch and Harmonics
+- Date: 25/06/2025
+- Description: Enhanced the synthesis by adding a fundamental pitch oscillator at 100 Hz using a sawtooth wave for richer harmonics, and two higher harmonics at 200 Hz and 300 Hz using triangle waves. Adjusted gain levels to balance the sound.
+- Outcome: The sound was slightly improved with the addition of pitch and harmonics, but still sounded synthetic and not human-like.
+- Issue: User feedback confirmed the voice still lacked realism.
+
+Attempt 3: Adding More Formants (F3 and F4)
+- Date: 25/06/2025
+- Description: Further enhanced the synthesis by adding F3 (approximated as 1.5x F2) and F4 (approximated as 2x F2) formants using sine waves, with adjusted gain levels to emphasize lower formants while adding subtle richness with higher ones.
+- Outcome: The additional formants added some depth, but the overall effect was still not convincing as a human voice.
+- Issue: User feedback reiterated that the voice sounded synthetic. An error was also encountered due to a function name mismatch (`startRealVoiceProcessing` was called but not defined), which was subsequently fixed.
+
+Current Status:
+- The basic mechanism for generating sound based on mouse position is functional.
+- The voice synthesis lacks realism, as it does not adequately mimic the complexities of human speech, such as glottal source characteristics, natural variations in pitch and amplitude, and more sophisticated filtering to simulate the vocal tract.
+
+Next Steps:
+- Research scientific literature on voice synthesis to adopt a source-filter model, which separates the voice into a source (glottal waveform) and filter (vocal tract resonances).
+- Explore the user's suggestion of using codec oscillations and filters, potentially implementing a vocoder-like approach or using more advanced waveform generation for the source signal.
+- Implement natural variations in pitch and amplitude to simulate human speech fluctuations.
+- Document findings and propose a detailed plan for the next implementation phase.
